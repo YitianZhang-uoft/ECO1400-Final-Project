@@ -1,8 +1,8 @@
 # ECO1400-Final-Project
 Code and Data Set for ECO1400 Final Project
 
-Source Data Set: 
-Datasource: 
+Source Data Set: Data.xls
+Datasource: Please refer to 'README' tab in Data.xls
 
 Code for Data Cleaning and OLS model: Data Processing and OLS.Rmd
 
