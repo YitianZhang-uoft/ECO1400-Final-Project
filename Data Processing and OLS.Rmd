@@ -1,0 +1,194 @@
+---
+title: "ECO1400 Final Paper Reg"
+Date: "Dec 2022"
+output: pdf_document
+urlcolor: blue
+geometry: margin=0.75in
+---
+
+Install and load required R packages
+```{r, message=FALSE}
+if (!require("Ecdat")) install.packages("Ecdat")
+if (!require("LINselect")) install.packages("LINselect")
+if (!require("gmm")) install.packages("gmm") # function gmm
+if (!require("vars")) install.packages("vars")
+if (!require("xtable")) install.packages("xtable")
+if (!require("StepReg")) install.packages("StepReg")
+if (!require("corrplot")) install.packages("corrplot")
+if (!require("tidycensus")) install.packages("tidycensus")
+if (!require("tidyverse")) install.packages("tidyverse")
+if (!require("plyr")) install.packages("plyr")
+if (!require("gvlma")) install.packages("gvlma")
+
+library(caret)
+
+library(caTools)
+library(car)
+library(quantmod)
+library(MASS)
+library(corrplot)
+
+library(pder) # data
+library(plm) # function: plm
+library(stargazer)
+library(Ecdat) # contains economic data
+library(gmm)
+library(dplyr)
+library(magrittr)
+library(lmtest)
+library(tseries)
+library(LINselect)
+library(vars)
+library(xtable)
+library(StepReg)
+library(corrplot)
+library(tidycensus)
+library(tidyverse)
+library(plyr)
+library(gvlma)
+library(Metrics)
+library(MLmetrics)
+library(Hmisc)
+```
+
+Load data  
+```{r}
+setwd("/Users/shjour/Desktop")
+m_data <- read.csv("ECO1400_MC.csv")
+
+m_data$DATE <- as.Date(m_data$DATE)
+
+#m_data <- m_data %>% mutate_at(c(25:25), as.numeric)
+#m_data <- m_data %>% mutate_at(c(26:26), as.numeric)
+
+# We drop the omitted data points.
+
+m_data <- na.omit(m_data)
+
+colnames(m_data)[1] <- "Date"
+
+#m_data_lp <- m_data[-c(1,T10Y2YM,T10Y3MM)]
+m_data_lp <- subset(m_data, 
+                    select = -c(Date,T10Y2YM,T10Y3MM,GCCMXCHG))
+m_data_lp <- log(m_data_lp)
+
+m_data_log <- cbind(subset(m_data, 
+                    select = c(Date,T10Y2YM,T10Y3MM,GCCMXCHG)), m_data_lp)
+
+```
+
+We first to check the correlation of our candiDate independent variables. To achieve this, we create the correlation matrix here.
+```{r}
+
+df_m_log <- m_data_log[-c(1)]
+
+df_m_log.cor <- cor(df_m_log)
+df_m_log.cor
+#col <- colorRampPalette(c("#BB4444", "#EE9988", "#FFFFFF", "#77AADD", "#4477AA"))
+#corrplot(df_m_log.cor, method="color", col=col(200),  
+#         type="upper", order="hclust", 
+#        addCoef.col = "black", # Add coefficient of correlation
+#         tl.col="black", tl.srt=45, #Text label color and rotation
+#         # Combine with significance
+#         sig.level = 0.01, insig = "blank", 
+#         # hide correlation coefficient on the principal diagonal
+#         diag=FALSE 
+#         )
+corrplot(df_m_log.cor)
+```
+
+We drop the variable that has small correlation to the dependent variable MCOILWTICO, which is
+T10Y2YM T10Y3MM M1SL MVIXHGH, M2SL, TB3MS, UMCSENT. Also, the rest of which have strong correlation for the independence. We drop IQ, MVIXOPN, MVIXLOW.
+
+```{r}
+m_data_log <- subset(m_data_log, 
+                    select = -c(T10Y2YM,T10Y3MM,M1SL,MVIXHGH,IQ,MVIXOPN,MVIXLOW))
+m_data_log
+```
+
+Now, we use the selected variables to do step-wise regression.
+```{r}
+m_data_mr_sw <- stepwise(MCOILWTICO ~ CCUSMA02RUM618N +CPIAUCSL +CPILFESL +CUSR0000SETA02 +INDPRO +IR +MCOILBRENTEU +MSACSR +POPTHM +UNRATE +MVIXADCLS +GCCMXCLS, data = m_data)
+
+m_data_mr_sw
+
+##
+```
+
+Thus, we choose MCOILBRENTEU, GCCMXCLS, MSACSR, CUSR0000SETA02, IR, UNRATE, CPILFESL, POPTHM ,CPIAUCSL.
+```{r}
+m_data_log <- subset(m_data_log, 
+                    select = c(Date,MCOILWTICO, MCOILBRENTEU, GCCMXCLS, MSACSR, CUSR0000SETA02, IR, UNRATE, CPILFESL, POPTHM ,CPIAUCSL,MVIXADCLS))
+```
+
+Thus, we now try to use Multivariable Regression to predict the crude oil price.
+```{r}
+name_Y  <- "MCOILWTICO" # crude oil price
+train_index <- c(1:round(0.7*nrow(m_data_log)) )
+# train_index <- sample(1:nrow(m_data_log),round(0.7*nrow(m_data_log))) 
+# row indeces of data in the training sample
+train_data <- m_data_log[train_index,]
+holdout_data <- m_data_log[-train_index,]
+Y_holdout <- m_data_log[-train_index,name_Y]
+X_holdout <- data.frame(m_data_log[-train_index,])
+model_MR <- lm(MCOILWTICO ~ MCOILBRENTEU+ GCCMXCLS+ MSACSR+ CUSR0000SETA02+ IR+ UNRATE+ CPILFESL+ POPTHM+ CPIAUCSL+ MVIXADCLS, data=train_data)
+
+vif_values <- vif(model_MR)           #create vector of VIF values
+vif_values
+
+# We drop the potential multilinearity variables.
+
+model_MR <- lm(MCOILWTICO ~ MSACSR+ IR +UNRATE +CUSR0000SETA02+ CPIAUCSL+ MVIXADCLS, data=train_data)
+
+vif_values <- vif(model_MR)           #create vector of VIF values
+vif_values
+
+summary(model_MR)
+
+m_data_log <- subset(m_data_log, 
+                    select = c(Date, MCOILWTICO, MSACSR, CUSR0000SETA02, IR, UNRATE ,CPIAUCSL,MVIXADCLS))
+
+write.csv(m_data_log, "/Users/shjour/Desktop/select_m_data.csv", row.names = FALSE)
+stargazer(model_MR, title="Results", no.space = TRUE, omit.stat=c("f", "ser"))
+
+gvlma(model_MR)
+
+```
+
+We check the OLS assumptions for OLS model.
+```{r}
+par(mfrow=c(2,2))
+plot(model_MR, which=1) #Residuals vs. Fitted, Linearity of the data
+plot(model_MR, which=2) #the distribution of residuals across the model, Normality of residuals
+plot(model_MR, which=3) #Homogeneity of variance
+plot(model_MR, which=5)
+
+
+```
+
+
+Plot SR and predictions
+```{r}
+predict_MR <- predict(model_MR, newdata=holdout_data)
+RMSE_MR <- mean((predict_MR - Y_holdout)^2)
+MAE_MR <- mae(Y_holdout, predict(model_MR, newdata=holdout_data))
+MAPE_MR <- MAPE(predict_MR, Y_holdout)
+RMSE_MR
+MAE_MR
+MAPE_MR
+
+
+predict_data <- cbind(X_holdout,predict_MR)
+colors <- c("Training data"="darkgrey", "Holdout data"="green", "Regression"="blue")
+ggplot() +
+geom_point(data=train_data, aes(x=train_data[,"Date"], y=train_data[,name_Y], color="Training data")) +
+geom_point(data=holdout_data, aes(x=holdout_data[,"Date"], y=holdout_data[,name_Y], color="Holdout data")) +
+geom_point(data=predict_data, aes(x=predict_data[,"Date"], y=predict_MR, color="Regression")) +
+geom_line(data=predict_data, aes(x=predict_data[,"Date"], y=predict_MR, color="Regression")) +
+labs(x="Date", y="median value", title="") + scale_color_manual(name="", values=colors) +
+theme_minimal() + theme(legend.position=c(0.12, 0.87), legend.title = element_blank())
+
+
+
+```
+
